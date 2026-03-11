@@ -12,7 +12,7 @@ output:
     code_folding: hide
     df_print: paged
 editor_options:
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
 ```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
@@ -54,13 +54,14 @@ Use slides + past labs + Discord as needed, but make sure your final code is **y
 
 Complete the pipeline so `df` is a clean tibble. Filter for 2023, and replace fill values (-9999) with na.
 
-```{r load_data, echo=TRUE, eval=FALSE}
+```{r load_data, echo=TRUE, eval=TRUE}
 # GOAL: Read the CSV from the repo and clean column names.
 # TODO: finish this pipeline.
 
-df <- read_csv("data/us-ams-simple.csv", na = c("____")) %>%
-  ___ %>%
-  ___
+df <- read_csv("data/us-ams-simple.csv", na = c("-9999")) %>%
+  janitor::clean_names() %>%
+  dplyr::filter(year_local == 2023)
+ 
 
 glimpse(df)
 ```
@@ -80,10 +81,10 @@ df <- df %>%
  mutate(
     # TODO: create a Date column from year_local and doy
     # HINT: Jan 1 is DOY = 1, so use (doy - 1) with origin = "YYYY-01-01"
-    date = as.Date(___ - 1, origin = paste0(___, "-01-01")),
+    date = as.Date(doy - 1, origin = paste0(year_local, "-01-01")),
 
     # TODO: create a month column (numeric 1–12 or labeled months)
-    month = month(___, label = TRUE, abbr = TRUE),
+    month = month(date, label = TRUE, abbr = TRUE),
 
     # TODO: make a day/night label using daytime (0/1)
     day_night = if_else(daytime == 1, "Day", "Night")
@@ -103,9 +104,9 @@ Pick **2–3 variables** to analyze. Include at least **one flux** variable (e.g
 
 ```{r choose_vars, echo=TRUE, eval=FALSE}
 vars <- c(
-  ___,  # e.g., "fc"
-  ___,  # e.g., "ta"
-  ___   # optional third variable
+  "reco",  # e.g., "fc"
+  "ta",  # e.g., "ta"
+  "fc"   # optional third variable
 )
 
 # CHECK: confirm these columns exist (should return character(0))
@@ -139,14 +140,14 @@ pop <- df %>%
     names_sep = "__",
     values_to = "value"
   ) %>%   
-  pivot_wider(names_from = ___, values_from = ___)       # TODO: pivot_wider
+  pivot_wider(names_from = stat, values_from = value)       # TODO: pivot_wider
 
 pop
 ```
 
 **Prompt (2–3 sentences):** Which variable has the largest population SD? What does that imply about the variability of that process?
 
-> *Write your answer here.*
+> The variable with the largest population SD is `ta`, or the air temperature. This implies that air temperature is a relatively variable process, especially when compared to the other variables observed. 
 
 ---
 
@@ -174,20 +175,21 @@ Return a tibble with columns: `var`, `sample_mean`, `pop_mean`, `rel_error_pct`.
 ```{r one_sample_relerr, echo=TRUE, eval=FALSE}
 # GOAL: Relative error for point estimates from one random sample.
 
-set.seed(___)
-n_samp <- ___
+set.seed(1122)
+n_samp <- 100
 
-samp <- ___
+samp <- df %>%
+  slice_sample(n = n_samp)
 
 # get mean point estimate for each variable
 est <- samp %>%
-  summarise(across(all_of(___), ~mean(.x, na.rm = ___))) %>%
+  summarise(across(all_of(vars), ~mean(.x, na.rm = T))) %>%
   pivot_longer(everything(), names_to = "var", values_to = "sample_mean")
 
 # compute the relative error for each variable
 relerr <- est %>%
   left_join(pop %>% select(var, pop_mean = mean), by = "var") %>%
-  mutate(rel_error_pct = 100 * abs(___ - ___) / abs(___)) %>%
+  mutate(rel_error_pct = 100 * abs(sample_mean - pop_mean) / abs(pop_mean)) %>%
   arrange(desc(rel_error_pct))
 
 relerr
@@ -196,7 +198,7 @@ relerr
 **Prompt (3–4 sentences):** Which variable had the largest relative error at your chosen `n_samp`?  
 Give a scientific reason why some variables are harder to estimate from a small sample.
 
-> *Write your answer here.*
+> The variable with the largest relative error was `fc`, or the flux carbon in the atmosphere. A scientific reason some variables may be harder to estimate is because there is less predictability and natural change in the atmosphere. For example, something like air temperature normally follows rough trends daily and seasonsally. Something like carbon in the atmosphere though can vary a lot due to climate changes and anthropogenic influnce along with its typical variations.
 
 ---
 
@@ -207,10 +209,10 @@ We will focus on **one variable** and simulate many repeated studies. The next c
 ```{r relerr_by_n, echo=TRUE, eval=FALSE}
 set.seed(480)
 
-n_grid <- c(___, ___, ___, ___)   # e.g., c(25, 100, 300, 1000)
-reps <- ___                        # e.g., 500 or 1000
+n_grid <- c(25, 100, 300, 1000)   # e.g., c(25, 100, 300, 1000)
+reps <- 1000                        # e.g., 500 or 1000
 
-target_var <- "___"                # e.g., "fch4" or "fc"
+target_var <- "fc"                # e.g., "fch4" or "fc"
 
 # Pull the population vector (remove missing values once, up front)
 x_pop <- df[[target_var]]
@@ -236,7 +238,7 @@ for (i in seq_along(n_grid)) {
     x_samp <- sample(x_pop, size = n_samp, replace = FALSE)
     xbar <- mean(x_samp)
 
-    relerrs[j] <- 100 * abs(pop_mean_target - ___) / abs(pop_mean_target)
+    relerrs[j] <- 100 * abs(pop_mean_target - xbar) / abs(pop_mean_target)
   }
 
   sim_list[[i]] <- tibble(
@@ -262,17 +264,31 @@ sim_relerr
 # GOAL: Summarize and plot the relationship between n and relative error.
 # TODO: write your own code.
 
-summary_relerr <- ___
+summary_relerr <- sim_relerr %>%
+  group_by(n) %>%
+  summarize(
+    median_relerr = median(rel_error_pct),
+    relerr_90th = quantile(rel_error_pct, 0.9),
+    .groups = "drop"
+  )
 summary_relerr
 
-p_relerr <- ___
+p_relerr <- 
+  ggplot(summary_relerr, aes(x = n)) +
+  geom_line(aes(y = median_relerr), color = "deeppink3") +
+  geom_point(aes(y = median_relerr), color = "deeppink3") +
+  labs(
+    x = "Sample Size (n)",
+    y = "Relative Error (%)",
+    title = "Relative Error vs Sample Size"
+  )
 p_relerr
 ```
 
 **Prompt (3–4 sentences):** Describe the pattern. Is improvement from n=25→100 larger than 300→1000?  
 Why does accuracy show “diminishing returns” as n increases?
 
-> *Write your answer here.*
+> The pattern is decreasing exponentially, and as size increases, so does the relative error. The improvement of 25→100 to 300→1000 is reflected by this exponential decrease, as when you go from 100 to 1000 samples, the slope becomes much shallower. This plot shows that accuracy is reflective of diminishing returns since as `n` increases and the sample size is relatively representative of the population, further increases in `n` only slightly improve the error value. 
 
 ---
 
@@ -296,9 +312,9 @@ Compute:
 set.seed(480)
 
 # TODO: pick a variable and sample size
-target_var <- ___
-n_samp <- ___
-reps <- ___
+target_var <- "fc"
+n_samp <- 100
+reps <- 1000
 
 pop_sd_target <- pop %>% filter(var == target_var) %>% pull(sd)
 pop_mean_target <- pop %>% filter(var == target_var) %>% pull(mean)
@@ -308,8 +324,8 @@ means <- replicate(
   mean(sample(df[[target_var]], size = n_samp, replace = FALSE), na.rm = TRUE)
 )
 
-se_theory <- ___
-se_sim    <- ___
+se_theory <- pop_sd_target / sqrt(n_samp)
+se_sim    <- sd(means)
 
 tibble(
   target_var = target_var,
@@ -324,7 +340,7 @@ tibble(
 ```{r plot_sampling_dist, echo=TRUE, eval=FALSE}
 tibble(mean_est = means) %>%
   ggplot(aes(x = mean_est)) +
-  geom_histogram(bins = ___, alpha = 0.85) +
+  geom_histogram(bins = 20, alpha = 0.85) +
   geom_vline(xintercept = pop_mean_target, linetype = "dashed", linewidth = 1.1) +
   theme_classic(base_size = 18) +
   labs(
@@ -338,7 +354,7 @@ tibble(mean_est = means) %>%
 **Prompt (3–5 sentences):** How close were `se_theory` and `se_simulated`?  
 What changes if you increase `n_samp` vs increase `reps`?
 
-> *Write your answer here.*
+> `se_theory` and `se_simulated` were very pretty to each other, with a difference of 0.023. When you increase the value of `n_samp`, the values decrease and become more different from each other. If you increase the value of `reps`, the values become more similar to each other, with a difference of only 0.002. 
 
 ---
 
@@ -362,20 +378,20 @@ Write code to:
 set.seed(480)
 
 # TODO: choose settings
-target_var <- ___
-n_samp <- ___
-B <- ___
+target_var <- "fc"
+n_samp <- 50
+B <- 1000
 
 # one "field campaign" sample
 samp <- tibble(x = sample(x_pop, size = n_samp, replace = FALSE))
 
 # bootstrap sampling of the mean
 boot_means <- replicate(
-  ___,
-  mean(sample(samp$x, size = ___, replace = TRUE))
+  B,
+  mean(sample(samp$x, size = n_samp, replace = TRUE))
 )
 
-boot_sd <- sd(___)
+boot_sd <- sd(boot_means)
 
 tibble(
   sample_mean = mean(samp$x),
@@ -385,13 +401,16 @@ tibble(
 
 ```{r plot_boot, echo=TRUE, eval=FALSE}
 # TODO: plot boot_means and mark the sample mean
-___
+tibble(boot_means = boot_means) %>%
+  ggplot(aes(x = boot_means)) +
+  geom_histogram(bins = 20) +
+  geom_vline(xintercept = mean(samp$x), linetype = "dashed", linewidth = 1.1)
 ```
 
 **Prompt (4–6 sentences):** Compare the bootstrap distribution to the sampling distribution from Part III.  
 What is the bootstrap trying to approximate? When is bootstrap especially useful in EAES?
 
-> *Write your answer here.*
+> When comparing the two, the peak/median of the bootstrap distribution is a bit over 2, while for the sampling distribution it is only a bit over 0. The bootstrap is trying to approximate the sampling distribution without necessarily knowing the population distribution. It can be useful in EaES because when data sets might only have small sample sizes, it is easier to replicate the samples even with less data. 
 
 ---
 
@@ -436,23 +455,23 @@ tibble(
 ```{r ex1_random_bootstrap, echo=TRUE, eval=FALSE}
 set.seed(480)
 
-n_samp <- ___
+n_samp <- 200
 B <- 4000
 
 # 1) Draw a random sample (no replacement) from the population vector
-swc_samp_random <- sample(___, size = n_samp, replace = FALSE)
+swc_samp_random <- sample(swc_pop, size = n_samp, replace = FALSE)
 
 # 2) Bootstrap the mean (resample WITH replacement from the sample)
 boot_means_random <- replicate(
   B,
-  mean(sample(swc_samp_random, size = ___, replace = TRUE))
+  mean(sample(swc_samp_random, size = n_samp, replace = TRUE))
 )
 
 # 3) Summarize
 tibble(
   pop_mean = pop_mean_swc,
-  sample_mean = mean(___),
-  boot_sd = sd(___)
+  sample_mean = mean(swc_samp_random),
+  boot_sd = sd(boot_means_random)
 )
 ```
 
@@ -461,7 +480,7 @@ tibble(
 
 tibble(boot_mean = boot_means_random) %>%
   ggplot(aes(x = boot_mean)) +
-  geom_histogram(bins = ___, alpha = 0.85) +
+  geom_histogram(bins = 40, alpha = 0.85) +
   geom_vline(xintercept = mean(swc_samp_random), linetype = "dashed", linewidth = 1.1) +
   geom_vline(xintercept = pop_mean_swc, linetype = "solid", linewidth = 1.1) +
   theme_classic(base_size = 18) +
@@ -476,7 +495,7 @@ tibble(boot_mean = boot_means_random) %>%
 **Prompt (3–4 sentences):** Is the bootstrap distribution centered near the population mean?  
 What does the bootstrap SD represent here?
 
-> *Write your answer here.*
+> The bootstrap distribution is a little higher than the population mean, but not by a drastic amount. The difference between the two means is a variance of less than one. The standard deviation here represents the possible variance between the bootstrap mean values after sampling. The standard deviation is +/- 0.544, and if the bootstrap mean was around 0.5 lower than it was, it would be much more representative of the population mean. 
 
 ---
 
@@ -493,9 +512,10 @@ What does the bootstrap SD represent here?
 # If you do not already have `month`, create it from a date column as in Part I.
 # HINT: month(date, label = TRUE, abbr = TRUE)
 
+
 df_summer <- df %>%
-  filter(___ %in% c("Jun", "Jul", "Aug")) %>%
-  filter(!is.na(___))
+  filter(month %in% c("Jun", "Jul", "Aug")) %>%
+  filter(!is.na(swc))
 
 swc_summer_pool <- df_summer$swc
 
@@ -509,12 +529,12 @@ n_samp <- 200
 B <- 4000
 
 # 1) Draw a summer-only sample
-swc_samp_summer <- sample(___, size = n_samp, replace = FALSE)
+swc_samp_summer <- sample(swc_summer_pool, size = n_samp, replace = FALSE)
 
 # 2) Bootstrap the mean from that sample
-boot_means_summer <- ___(
+boot_means_summer <- replicate(
   B,
-  mean(sample(___, size = n_samp, replace = TRUE))
+  mean(sample(swc_samp_summer, size = n_samp, replace = TRUE))
 )
 
 # 3) Summarize
@@ -531,7 +551,7 @@ tibble(
 
 tibble(boot_mean = boot_means_summer) %>%
   ggplot(aes(x = boot_mean)) +
-  geom_histogram(bins = ___, alpha = 0.85) +
+  geom_histogram(bins = 40, alpha = 0.85) +
   geom_vline(xintercept = mean(swc_samp_summer), linetype = "dashed", linewidth = 1.1) +
   geom_vline(xintercept = pop_mean_swc, linetype = "solid", linewidth = 1.1) +
   theme_classic(base_size = 18) +
@@ -547,7 +567,7 @@ tibble(boot_mean = boot_means_summer) %>%
 Explain the difference between **precision** and **accuracy** in this example.  
 What *kind* of error is summer-only sampling introducing?
 
-> *Write your answer here.*
+> The bootstrap distribution does look confident, but it is much lower than the population mean. The difference between precision and accuracy is that precision is a reference to confidence and variability, which is low here. However, accuracy is a reference to how close the measurement is to the true answer, which is pretty off in this case. The error the summer-only sampling is introducing is selection bias, since only a small part of the total population/year is being sampled. 
 
 ---
 
@@ -565,9 +585,9 @@ k_per_month <- n_samp / 12
 
 # 1) Create a month-stratified sample from df
 df_strat <- df %>%
-  filter(!is.na(___)) %>%
-  group_by(___) %>%
-  slice_sample(n = ___) %>%
+  filter(!is.na(swc)) %>%
+  group_by(month) %>%
+  slice_sample(n = k_per_month) %>%
   ungroup()
 
 swc_samp_strat <- df_strat$swc
@@ -598,7 +618,7 @@ tibble(
 
 tibble(boot_mean = boot_means_strat) %>%
   ggplot(aes(x = boot_mean)) +
-  geom_histogram(bins = ___, alpha = 0.85) +
+  geom_histogram(bins = 40, alpha = 0.85) +
   geom_vline(xintercept = mean(swc_samp_strat), linetype = "dashed", linewidth = 1.1) +
   geom_vline(xintercept = pop_mean_swc, linetype = "solid", linewidth = 1.1) +
   theme_classic(base_size = 18) +
@@ -614,7 +634,7 @@ tibble(boot_mean = boot_means_strat) %>%
 Which sampling design is most accurate for the annual mean? Which looks most precise?  
 What does this teach you about bootstrap and study design?
 
-> *Write your answer here.*
+> I would say the sampling design that is the most accurate for the annual mean is the month-stratified sample. However, the summer-only sample looks the most precise. These results taught me how the results of bootstrapping vary depending on what you're sampling (chosen sample) and the the sample and repitions of a sample can shift results (less and more accurate respectively). In terms of study design, I would say I now have a better understanding on how to produce a relatively accurate model to test data that is representative of a larger population on a small scale. 
 
 ---
 
